@@ -10,9 +10,9 @@
 #include <Arduino.h>
 #include <BLEDevice.h> //Header file for BLE 
 
-static BLEUUID serviceUUID("0000fee7-0000-1000-8000-00805f9b34fb"); //Service UUID of fitnessband obtained through nRF connect application 
-static BLEUUID    charUUID("0000fee7-0000-1000-8000-00805f9b34fb"); //Characteristic  UUID of fitnessband obtained through nRF connect application 
-String My_BLE_Address = "xxxx"; //Hardware Bluetooth MAC of my fitnessband, will vary for every band obtained through nRF connect application 
+static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); //Service UUID of fitnessband obtained through nRF connect application 
+static BLEUUID    charUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); //Characteristic  UUID of fitnessband obtained through nRF connect application 
+String My_BLE_Address = "24:0a:c4:61:30:72"; //Hardware Bluetooth MAC of my fitnessband, will vary for every band obtained through nRF connect application 
 static BLERemoteCharacteristic* pRemoteCharacteristic;
 
 BLEScan* pBLEScan; //Name the scanning device as pBLEScan
@@ -21,7 +21,7 @@ BLEScanResults foundDevices;
 static BLEAddress *Server_BLE_Address;
 String Scaned_BLE_Address;
 
-boolean paired = false; //boolean variable to togge light
+boolean paired = true; //boolean variable to togge light
 
  
 
@@ -41,7 +41,6 @@ bool connectToServer (BLEAddress pAddress){
       return true;
     } else
       return false;
-    // ????
     // Obtain a reference to the characteristic in the service of the remote BLE server.
     pRemoteCharacteristic = pRemoteService->getCharacteristic(charUUID);
     if (pRemoteCharacteristic != nullptr)
@@ -55,8 +54,6 @@ class MyAdvertisedDeviceCallbacks: public BLEAdvertisedDeviceCallbacks
     void onResult(BLEAdvertisedDevice advertisedDevice) {
       Serial.printf("Scan Result: %s \n", advertisedDevice.toString().c_str());
       Server_BLE_Address = new BLEAddress(advertisedDevice.getAddress());
-      
-      Scaned_BLE_Address = Server_BLE_Address->toString().c_str();
       
     }
 };
@@ -75,7 +72,7 @@ void setup() {
 
 void loop() {
 
-  foundDevices = pBLEScan->start(3); //Scan for 3 seconds to find the Fitness band 
+  foundDevices = pBLEScan->start(10); //Scan for 3 seconds to find the Fitness band 
 
   while (foundDevices.getCount() >= 1)
   {
@@ -109,39 +106,3 @@ void loop() {
     }
   } 
 }
-
-/*
-#include <Arduino.h>
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
-
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-
-void setup() {
-  Serial.begin(115200);
-
-  BLEDevice::init("BLE EXPERT GROUP");
-  BLEServer *pServer = BLEDevice::createServer();
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  BLECharacteristic *pCharacteristic = pService->createCharacteristic(
-                                         CHARACTERISTIC_UUID,
-                                         BLECharacteristic::PROPERTY_READ |
-                                         BLECharacteristic::PROPERTY_WRITE
-                                       );
-
-  pCharacteristic->setValue("Hello World says Kristof");
-  pService->start();
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06);  
-  pAdvertising->setMinPreferred(0x12);
-  BLEDevice::startAdvertising();
-}
-
-void loop() {
-  delay(2000);
-}
-*/
