@@ -17,8 +17,10 @@
 //BLE server name
 #define bleServerName "BME280_ESP32"
 
-
+BLEServer *pServer;
 bool deviceConnected = false;
+bool once = false;
+bool once2 = false;
 
 #define SERVICE_UUID "91bad492-b950-4226-aa2b-4ede9fa42f59"
 
@@ -41,7 +43,7 @@ void setup() {
   BLEDevice::init(bleServerName);
 
   // Create the BLE Server
-  BLEServer *pServer = BLEDevice::createServer();
+  pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
 
   // Create the BLE Service
@@ -53,12 +55,21 @@ void setup() {
   // Start advertising
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
-  pServer->getAdvertising()->start();
-  Serial.println("Waiting a client connection to notify...");
 }
 
 void loop() {
   if (deviceConnected) {
-    Serial.println("Device connected. Yeah.");
+    if (!once) {
+      Serial.println("Device connected.");
+      once = true;
+      once2 = false;
+    }
+  } else {
+    if (!once2) {
+      Serial.println("Waiting a client connection to notify...");
+      pServer->getAdvertising()->start();
+      once2 = true;
+      once = false;
+    }
   }
 }
