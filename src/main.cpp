@@ -26,9 +26,10 @@ String Scanned_BLE_Address;
 
 boolean paired = false; // boolean variable to togge light
 
-bool connectToServer(BLEAddress pAddress) {
+bool connectToServer(BLEAddress pAddress)
+{
 
-  *pClient = BLEDevice::createClient();
+  pClient = BLEDevice::createClient();
   Serial.println(" - Created client");
 
   // Connect to the BLE Server.
@@ -37,10 +38,12 @@ bool connectToServer(BLEAddress pAddress) {
 
   // Obtain a reference to the service we are after in the remote BLE server.
   BLERemoteService *pRemoteService = pClient->getService(serviceUUID);
-  if (pRemoteService != nullptr) {
+  if (pRemoteService != nullptr)
+  {
     Serial.println(" - Found our service");
     return true;
-  } else
+  }
+  else
     return false;
   // Obtain a reference to the characteristic in the service of the remote BLE server.
   pRemoteCharacteristic = pRemoteService->getCharacteristic(charUUID);
@@ -73,36 +76,57 @@ void setup()
 
 void loop()
 {
-  while (paired == false) {
-    foundDevices = pBLEScan->start(10); // Scan for 3 seconds to find the Fitness band
+  while (paired == false)
+  {
+    foundDevices = pBLEScan->start(3); // Scan for 3 seconds to find the Fitness band
     Serial.printf("Scan done.\n");
     Serial.printf("Number of BLE devices found: %d\n", foundDevices.getCount());
-    
-    for (int i = 0; i < foundDevices.getCount(); i++) {
+
+    for (int i = 0; i < foundDevices.getCount(); i++)
+    {
       Scanned_BLE_Address = foundDevices.getDevice(i).getAddress().toString().c_str();
-      if (Scanned_BLE_Address == My_BLE_Address && paired == false) {
+      if (Scanned_BLE_Address == My_BLE_Address && paired == false)
+      {
         Serial.println("Found Device. Connecting to Server as client");
-        if (connectToServer(foundDevices.getDevice(i).getAddress())) {
+        if (connectToServer(foundDevices.getDevice(i).getAddress()))
+        {
           paired = true;
-          Serial.println("********************LED turned ON************************");
-          digitalWrite(14, HIGH);
           break;
-        } else {
+        }
+        else
+        {
           Serial.println("Pairing failed");
           break;
         }
       }
     }
   }
-  while (paired) {
-    rssi = pClient->getRssi();
-    Serial.println("RSSI: " + rssi);
-
-    /*
-    if (rssi < 10) {
-      digitalWrite(14, LOW);
-      paired = false;
+  while (paired == true)
+  {
+    if (pClient->isConnected())
+    {
+      rssi = pClient->getRssi();
+      Serial.printf("RSSI: %d\n", rssi);
+      delay(1000);
+      if (rssi < -80)
+      {
+        Serial.println("LED OFF");
+        digitalWrite(14, LOW);
+        break;
+      }
+      else
+      {
+        Serial.println("LED ON");
+        digitalWrite(14, HIGH);
+        break;
+      }
     }
-    */
+    else
+    {
+      Serial.println("Disconnected");
+      paired = false;
+      delay(5000);
+      break;
+    }
   }
 }
