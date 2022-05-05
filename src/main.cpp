@@ -12,16 +12,16 @@
 
 static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); //Service UUID of fitnessband obtained through nRF connect application 
 static BLEUUID    charUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); //Characteristic  UUID of fitnessband obtained through nRF connect application 
-String My_BLE_Address = "24:0a:c4:61:30:72"; //Hardware Bluetooth MAC of my fitnessband, will vary for every band obtained through nRF connect application 
+String My_BLE_Address = "b4:e6:2d:eb:0b:df"; //Hardware Bluetooth MAC of my fitnessband, will vary for every band obtained through nRF connect application 
 static BLERemoteCharacteristic* pRemoteCharacteristic;
 
 BLEScan* pBLEScan; //Name the scanning device as pBLEScan
 BLEScanResults foundDevices;
 
 static BLEAddress *Server_BLE_Address;
-String Scaned_BLE_Address;
+String Scanned_BLE_Address;
 
-boolean paired = true; //boolean variable to togge light
+boolean paired = false; //boolean variable to togge light
 
  
 
@@ -73,10 +73,13 @@ void setup() {
 void loop() {
 
   foundDevices = pBLEScan->start(10); //Scan for 3 seconds to find the Fitness band 
-
-  while (foundDevices.getCount() >= 1)
-  {
-    if (Scaned_BLE_Address == My_BLE_Address && paired == false)
+  Serial.printf("Scan done.\n");
+  Serial.println(foundDevices.getDevice(foundDevices.getCount()-1).getAddress().toString().c_str()); //Print the scanned BLE address
+  for(int i = 0; i < foundDevices.getCount(); i++) {
+    Scanned_BLE_Address = foundDevices.getDevice(i).getAddress().toString();
+    if(Scanned_BLE_Address == My_BLE_Address){
+      Serial.println("Found it");
+          if (Scanned_BLE_Address == My_BLE_Address && paired == false)
     {
       Serial.println("Found Device. Connecting to Server as client");
       if (connectToServer(*Server_BLE_Address)) {
@@ -89,8 +92,8 @@ void loop() {
         break;
       }
     }
-    
-    if (Scaned_BLE_Address == My_BLE_Address && paired == true)
+  }
+    if (Scanned_BLE_Address == My_BLE_Address && paired == true)
     {
       Serial.println("Our device went out of range");
       paired = false;
