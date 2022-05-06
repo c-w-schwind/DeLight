@@ -12,26 +12,21 @@
 #include <BLE2902.h>
 #include <Wire.h>
 
-
-
 //BLE server name
 #define bleServerName "BME280_ESP32"
+#define SERVICE_UUID "91bad492-b950-4226-aa2b-4ede9fa42f59"
 
 BLEServer *pServer;
-bool deviceConnected = false;
-bool once = false;
-bool once2 = false;
-
-#define SERVICE_UUID "91bad492-b950-4226-aa2b-4ede9fa42f59"
 
 
 //Setup callbacks onConnect and onDisconnect
 class MyServerCallbacks: public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) {
-    deviceConnected = true;
+    Serial.println("Device connected.");
   };
   void onDisconnect(BLEServer* pServer) {
-    deviceConnected = false;
+    Serial.println("Waiting for client connection...");
+    pServer->getAdvertising()->start();
   }
 };
 
@@ -55,21 +50,9 @@ void setup() {
   // Start advertising
   BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
   pAdvertising->addServiceUUID(SERVICE_UUID);
+  pServer->getAdvertising()->start();
+  Serial.println("Waiting for client connection...");
 }
 
 void loop() {
-  if (deviceConnected) {
-    if (!once) {
-      Serial.println("Device connected.");
-      once = true;
-      once2 = false;
-    }
-  } else {
-    if (!once2) {
-      Serial.println("Waiting a client connection to notify...");
-      pServer->getAdvertising()->start();
-      once2 = true;
-      once = false;
-    }
-  }
 }
