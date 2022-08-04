@@ -1,14 +1,9 @@
-/*
- * Program to operate ESP32 in client mode and use fitness band as proximity switch
- * Program by: Aswinth Raj B
- * Dated: 31-10-2018
- * Website: www.circuitdigest.com&nbsp;
- * Reference: https://github.com/nkolban/esp32-snippets&nbsp;
- * //NOTE: The My_BLE_Address, serviceUUID and charUUID should be changed based on the BLe server you are using
- */
-
 #include <Arduino.h>
 #include <BLEDevice.h> //Header file for BLE
+//#include <ArduinoHttpClient.h>
+#include <WiFi.h> 
+#include <HTTPClient>
+#include "secrets.h"
 
 static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); // Service UUID of fitnessband obtained through nRF connect application
 static BLEUUID charUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");    // Characteristic  UUID of fitnessband obtained through nRF connect application
@@ -20,6 +15,11 @@ BLEScanResults foundDevices;
 
 BLEClient *pClient;
 int rssi;
+
+const char* ssid = SECRET_SSID;
+const char* password =  SECRET_PASS;
+
+std::string serverName = "https://api.openweathermap.org/data/2.5/weather?lat={lat}&lon={lon}&appid=5a246f369afff4ce3d85a772dfe8e031";
 
 static BLEAddress *Server_BLE_Address;
 String Scanned_BLE_Address;
@@ -64,6 +64,15 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
 void setup()
 {
   Serial.begin(115200);
+
+  WiFi.begin(ssid, password);
+  Serial.println("Connecting to WiFi");
+  while(WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("Connected to WiFi\n");
+
   Serial.println("ESP32 BLE Server program");
 
   BLEDevice::init("");
