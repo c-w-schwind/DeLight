@@ -3,7 +3,7 @@
 //#include <ArduinoHttpClient.h>
 #include <WiFi.h> 
 #include <HTTPClient>
-#include "secrets.h"
+#include "mySecrets.h"
 
 static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); // Service UUID of fitnessband obtained through nRF connect application
 static BLEUUID charUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");    // Characteristic  UUID of fitnessband obtained through nRF connect application
