@@ -1,18 +1,9 @@
-/*
- * Program to operate ESP32 in client mode and use fitness band as proximity switch
- * Program by: Aswinth Raj B
- * Dated: 31-10-2018
- * Website: www.circuitdigest.com&nbsp;
- * Reference: https://github.com/nkolban/esp32-snippets&nbsp;
- * //NOTE: The My_BLE_Address, serviceUUID and charUUID should be changed based on the BLe server you are using
- */
-
 #include <Arduino.h>
 #include <BLEDevice.h> //Header file for BLE
 
-static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); // Service UUID of fitnessband obtained through nRF connect application
-static BLEUUID charUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");    // Characteristic  UUID of fitnessband obtained through nRF connect application
-String My_BLE_Address = "b4:e6:2d:eb:0b:df";                        // Hardware Bluetooth MAC of my fitnessband, will vary for every band obtained through nRF connect application
+static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); 
+static BLEUUID charUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");   
+String My_BLE_Address = "08:3a:f2:b9:0b:fa";                       
 static BLERemoteCharacteristic *pRemoteCharacteristic;
 
 BLEScan *pBLEScan; // Name the scanning device as pBLEScan
@@ -71,7 +62,9 @@ void setup()
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks()); // Call the class that is defined above
   pBLEScan->setActiveScan(true);                                             // active scan uses more power, but get results faster
 
-  pinMode(14, OUTPUT); // Declare the in-built LED pin as output
+  pinMode(14, OUTPUT);
+  pinMode(26, OUTPUT);
+  pinMode(33, OUTPUT);
 }
 
 void loop()
@@ -112,12 +105,16 @@ void loop()
       {
         Serial.println("LED OFF");
         digitalWrite(14, LOW);
+        digitalWrite(26, LOW);
+        digitalWrite(33, LOW);
         break;
       }
       else
       {
         Serial.println("LED ON");
         digitalWrite(14, HIGH);
+        digitalWrite(26, HIGH);
+        digitalWrite(33, HIGH);
         break;
       }
     }
