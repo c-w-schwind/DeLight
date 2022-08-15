@@ -1,5 +1,9 @@
 #include <Arduino.h>
 #include <BLEDevice.h> //Header file for BLE
+//#include <ArduinoHttpClient.h>
+#include <WiFi.h> 
+#include <HTTPClient.h>
+#include "mySecrets.h"
 
 static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); 
 static BLEUUID charUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");   
@@ -11,6 +15,15 @@ BLEScanResults foundDevices;
 
 BLEClient *pClient;
 int rssi;
+
+const char* ssid = SECRET_SSID;
+const char* password =  SECRET_PASS;
+
+std::string serverName = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
+
+//unsigned long lastTime = 0;
+//unsigned long timerDelay = 5000;
+
 
 static BLEAddress *Server_BLE_Address;
 String Scanned_BLE_Address;
@@ -55,8 +68,19 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks
 void setup()
 {
   Serial.begin(115200);
-  Serial.println("ESP32 BLE Server program");
+  delay(2000);
+  WiFi.begin(ssid, password);
+  Serial.print("Connecting to WiFi");
+  while(WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to WiFi network with IP Address: ");
+  Serial.println(WiFi.localIP());
 
+  
+  Serial.println("ESP32 BLE Server program");
   BLEDevice::init("");
   pBLEScan = BLEDevice::getScan();                                           // create new scan
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks()); // Call the class that is defined above
@@ -65,10 +89,37 @@ void setup()
   pinMode(14, OUTPUT);
   pinMode(26, OUTPUT);
   pinMode(33, OUTPUT);
+
 }
 
 void loop()
 {
+
+  //Check WiFi connection status
+  if(WiFi.status()== WL_CONNECTED){
+    HTTPClient http;
+
+    std::string serverPath = serverName;// + "?temperature=24.37";
+    
+    // Your Domain name with URL path or IP address with path
+    http.begin(serverPath.c_str());
+    
+    // Send HTTP GET request
+    int httpResponseCode = http.GET();
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+    String payload = http.getString();
+    Serial.println(payload);
+
+    // Free resources
+    http.end();
+  }
+  else {
+    Serial.println("WiFi Disconnected");
+  }
+  delay(60000);
+
+  /*
   while (paired == false)
   {
     foundDevices = pBLEScan->start(3); // Scan for 3 seconds to find the Fitness band
@@ -125,5 +176,5 @@ void loop()
       delay(5000);
       break;
     }
-  }
+  }*/
 }
