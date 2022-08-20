@@ -23,7 +23,7 @@ movingAvg rssiAvg(10);
 //WIFI
 const char* ssid = SECRET_SSID;
 const char* password = SECRET_PASS;
-std::string serverName = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
+std::string serverPath = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
 
 bool one = true;
 bool two = true;
@@ -63,7 +63,7 @@ bool connectWifi() {
   WiFi.begin(ssid, password);
   Serial.print("Attempting to connect to WiFi with following SSID: ");
   Serial.println(ssid);
-  while (counter < 40) {  //if connection cannot be established, attempt ends after 20 seconds (40 * 500ms)
+  while (counter < 40) {  //attempting connection ends after 20 seconds (40 * 500ms)
     if (WiFi.status() != WL_CONNECTED) {
       delay (500);
       Serial.print(".");
@@ -81,16 +81,31 @@ bool connectWifi() {
 
 void getWeather() {
   HTTPClient http;
-  std::string serverPath = serverName;  // + "?temperature=24.37";
   http.begin(serverPath.c_str());
-    
   int httpResponseCode = http.GET();    // Send HTTP GET request
   Serial.print("HTTP Response code: ");
-  Serial.println(httpResponseCode);
-  String payload = http.getString();
+  Serial.println(httpResponseCode);     // TODO: Response code error handling
+  String payload = http.getString();    // TODO: parse payload and extract
   Serial.println(payload);
-  //TODO: parse payload and extract
   http.end();                           // Free resources
+}
+
+void lampOff() {
+  digitalWrite(14, LOW);
+  digitalWrite(26, LOW);
+  digitalWrite(33, LOW);
+  Serial.println("\nLED OFF\n");
+}
+
+void lampOn() {                         // TODO: default lamp settings
+  digitalWrite(14, HIGH);   
+  digitalWrite(26, HIGH);
+  digitalWrite(33, HIGH);
+  Serial.println("\nLED ON\n");
+}
+
+void lampAdjust(int brightness) {       // TODO: input variables
+
 }
 
 void setup() {
@@ -126,30 +141,23 @@ void loop() {
     delay(500);
     if (rssiAvg.getAvg() < -80) {
       if (one) {
+        lampOff();
         one = false;
         two = true;
-        Serial.println("\nLED OFF\n");
-        digitalWrite(14, LOW);
-        digitalWrite(26, LOW);
-        digitalWrite(33, LOW);
       }
     } else {
       if (two) {
+        lampOn();
+        lastAPICall = millis() - 60000UL;
         two = false;
         one = true;
-        Serial.println("\nLED ON\n");
-        lastAPICall = millis() - 60000UL;
-        // TODO: switch light on with low brightness (default; also settable via interface)
-        // TODO: if too slow: occasionally call weather api (e.g. every 30 min) for quick settings roughly correct
       }
       if (millis() - lastAPICall >= 60000UL){
         if(WiFi.status() != WL_CONNECTED) 
           connectWifi();
         lastAPICall = millis();
         getWeather();
-        digitalWrite(14, HIGH);   // TODO map readings to lamp settings
-        digitalWrite(26, HIGH);
-        digitalWrite(33, HIGH); 
+        lampAdjust();
       }
        
     }
