@@ -11,8 +11,11 @@
 //WIFI
 const char* ssid = SECRET_SSID;
 const char* password = SECRET_PASS;
-//const char* serverPath = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
-const char* serverPath = "https://api.openweathermap.org/data/2.5/weather?zip=51103,de&appid=5a246f369afff4ce3d85a772dfe8e031";
+
+//API
+const char* serverPathLatLon = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
+const char* serverPathZipCode = "https://api.openweathermap.org/data/2.5/weather?zip=51103,de&appid=5a246f369afff4ce3d85a772dfe8e031";
+unsigned long lastAPICall;
 
 //BLE
 static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); 
@@ -24,16 +27,18 @@ BLEScan *pBLEScan;
 BLEScanResults foundDevices;
 String Scanned_BLE_Address;
 
+//RSSI
 int rssi;
 movingAvg rssiAvg(10);
 
+//WEATHER
 StaticJsonDocument<1024> doc;
 int cloudiness;
 long sunrise, sunset;
 
-bool one = true;
-bool two = true;
-unsigned long lastAPICall;
+//LAMP
+bool isLampOn = false;
+
 
 
 
@@ -89,7 +94,7 @@ bool connectWifi() {
 
 String getRequestWeatherAPI() {
   HTTPClient http;
-  http.begin(serverPath);
+  http.begin(serverPathZipCode);
   int httpResponseCode = http.GET();
   String payload = "{}";
   if (httpResponseCode > 0) {
@@ -123,22 +128,32 @@ void parseWeatherData() {
   Serial.println(sunset);
 }
 
-void lampOff() {
+void turnLampOff() {
   digitalWrite(14, LOW);
   digitalWrite(26, LOW);
   digitalWrite(33, LOW);
+  isLampOn = false;
   Serial.println("\nLED OFF\n");
 }
 
-void lampOn() {                         // TODO: default lamp settings
+void turnLampOn() {                     // TODO: default lamp settings
   digitalWrite(14, HIGH);   
   digitalWrite(26, HIGH);
   digitalWrite(33, HIGH);
+  isLampOn = true;
   Serial.println("\nLED ON\n");
 }
 
-void lampAdjust() {                     // TODO: input variables
+void adjustLamp() {                     // TODO: input variables
 
+}
+
+void updateRssiWithDelay() {
+  rssi = -10;//pClient->getRssi();
+  Serial.printf("RSSI: %d       ", rssi);
+  Serial.printf("Moving Average: %d       ", rssiAvg.reading(rssi));
+  Serial.printf("Average input count: %d\n", rssiAvg.getCount());
+  delay(500);
 }
 
 void setup() {
@@ -170,30 +185,19 @@ void loop() {
   while (pClient->isConnected()) {
     */
   while(true) {
-    rssi = -10;//pClient->getRssi();
-    Serial.printf("RSSI: %d       ", rssi);
-    Serial.printf("Moving Average: %d       ", rssiAvg.reading(rssi));
-    Serial.printf("Average input count: %d\n", rssiAvg.getCount());
-    delay(500);
+    updateRssiWithDelay();
     if (rssiAvg.getAvg() < -80) {
-      if (one) {
-        lampOff();
-        one = false;
-        two = true;
-      }
+      if (isLampOn) turnLampOff();
     } else {
-      if (two) {
-        lampOn();
+      if (!isLampOn) {
+        turnLampOn();
         lastAPICall = millis() - 60000UL;
-        two = false;
-        one = true;
       }
       if (millis() - lastAPICall >= 60000UL){
-        if(WiFi.status() != WL_CONNECTED) 
-          connectWifi();
+        if(WiFi.status() != WL_CONNECTED) connectWifi();
         parseWeatherData();        
         lastAPICall = millis();
-        lampAdjust();
+        adjustLamp();
       }
     }
   }
