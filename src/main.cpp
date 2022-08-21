@@ -116,8 +116,9 @@ void parseWeatherData() {
   }
   const char* name = doc["name"];
   cloudiness = doc["clouds"]["all"];
-  sunrise = doc["sys"]["sunrise"];  // TODO: nur einmal täglich abrufen...
-  sunset = doc["sys"]["sunset"];
+  sunrise = long(doc["sys"]["sunrise"]) + long(doc["timezone"]);    // Sunrise in UTC, add timezone for local time
+  sunset = long(doc["sys"]["sunset"]) + long(doc["timezone"]);      // TODO: nur einmal täglich abrufen...
+
   Serial.print("\nRight now in ");
   Serial.println(name);
   Serial.print("   Cloudiness: ");
@@ -133,7 +134,7 @@ void turnLampOff() {
   digitalWrite(26, LOW);
   digitalWrite(33, LOW);
   isLampOn = false;
-  Serial.println("\nLED OFF\n");
+  Serial.println("\nLAMP OFF\n");
 }
 
 void turnLampOn() {                     // TODO: default lamp settings
@@ -141,7 +142,7 @@ void turnLampOn() {                     // TODO: default lamp settings
   digitalWrite(26, HIGH);
   digitalWrite(33, HIGH);
   isLampOn = true;
-  Serial.println("\nLED ON\n");
+  Serial.println("\nLAMP ON\n");
 }
 
 void adjustLamp() {                     // TODO: input variables
@@ -183,7 +184,7 @@ void loop() {
   }
 
   while (pClient->isConnected()) {
-    */
+  */
   while(true) {
     updateRssiWithDelay();
     if (rssiAvg.getAvg() < -80) {
@@ -191,10 +192,10 @@ void loop() {
     } else {
       if (!isLampOn) {
         turnLampOn();
-        lastAPICall = millis() - 60000UL;
+        lastAPICall = millis() - /*10 **/ 60000UL;
       }
-      if (millis() - lastAPICall >= 60000UL){
-        if(WiFi.status() != WL_CONNECTED) connectWifi();
+      if (millis() - lastAPICall >= /*10 **/ 60000UL) {       //every 10 Minutes
+        if(WiFi.status() != WL_CONNECTED) connectWifi();  // TODO:
         parseWeatherData();        
         lastAPICall = millis();
         adjustLamp();
