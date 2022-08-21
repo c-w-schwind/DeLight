@@ -4,30 +4,38 @@
 #include <HTTPClient.h>
 #include <movingAvg.h>
 #include "mySecrets.h"
+#include <ArduinoJson.h>
 //#include "esp_coexist_internal.h"
 //#define CONFIG_SW_COEXIST_ENABLE 1
-
-//BLE
-static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); 
-static BLEUUID charUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");   
-static BLERemoteCharacteristic *pRemoteCharacteristic;
-String Partner_BLE_Address = "b4:e6:2d:eb:17:73";                       
-BLEScan *pBLEScan;
-BLEScanResults foundDevices;
-BLEClient *pClient;
-static BLEAddress *Server_BLE_Address;
-String Scanned_BLE_Address;
-int rssi;
-movingAvg rssiAvg(10);
 
 //WIFI
 const char* ssid = SECRET_SSID;
 const char* password = SECRET_PASS;
-std::string serverPath = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
+//const char* serverPath = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
+const char* serverPath = "https://api.openweathermap.org/data/2.5/weather?zip=51103,de&appid=5a246f369afff4ce3d85a772dfe8e031";
+
+//BLE
+static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); 
+static BLEUUID charUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");   
+static String Partner_BLE_Address = "b4:e6:2d:eb:17:73";                       
+static BLERemoteCharacteristic *pRemoteCharacteristic;
+BLEClient *pClient;
+BLEScan *pBLEScan;
+BLEScanResults foundDevices;
+String Scanned_BLE_Address;
+
+int rssi;
+movingAvg rssiAvg(10);
+
+StaticJsonDocument<1024> doc;
+int cloudiness;
+long sunrise, sunset;
 
 bool one = true;
 bool two = true;
 unsigned long lastAPICall;
+
+
 
 bool connectToServer(BLEAddress pAddress) {
   pClient->connect(pAddress);
@@ -79,15 +87,40 @@ bool connectWifi() {
   return false;
 }
 
-void getWeather() {
+String getRequestWeatherAPI() {
   HTTPClient http;
-  http.begin(serverPath.c_str());
-  int httpResponseCode = http.GET();    // Send HTTP GET request
-  Serial.print("HTTP Response code: ");
-  Serial.println(httpResponseCode);     // TODO: Response code error handling
-  String payload = http.getString();    // TODO: parse payload and extract
-  Serial.println(payload);
-  http.end();                           // Free resources
+  http.begin(serverPath);
+  int httpResponseCode = http.GET();
+  String payload = "{}";
+  if (httpResponseCode > 0) {
+    Serial.println("HTTP Response code: " + String(httpResponseCode));
+    payload = http.getString();
+  } else {
+    Serial.println("Error code: " + String(httpResponseCode));
+  }
+  http.end();
+  return payload;
+}
+
+void parseWeatherData() {
+  DeserializationError error = deserializeJson(doc, getRequestWeatherAPI());
+  if (error) {
+    Serial.print("deserializeJson() failed: ");
+    Serial.println(error.c_str());
+    return;
+  }
+  const char* name = doc["name"];
+  cloudiness = doc["clouds"]["all"];
+  sunrise = doc["sys"]["sunrise"];  // TODO: nur einmal täglich abrufen...
+  sunset = doc["sys"]["sunset"];
+  Serial.print("\nRight now in ");
+  Serial.println(name);
+  Serial.print("   Cloudiness: ");
+  Serial.println(cloudiness);
+  Serial.print("   Sunrise: ");
+  Serial.println(sunrise);
+  Serial.print("   Sunset:");
+  Serial.println(sunset);
 }
 
 void lampOff() {
@@ -104,7 +137,7 @@ void lampOn() {                         // TODO: default lamp settings
   Serial.println("\nLED ON\n");
 }
 
-void lampAdjust(int brightness) {       // TODO: input variables
+void lampAdjust() {                     // TODO: input variables
 
 }
 
@@ -120,6 +153,7 @@ void setup() {
 
 
 void loop() {
+  /*
   while (!pClient->isConnected()) {
     foundDevices = pBLEScan->start(3); // Scan for 3 seconds
     Serial.printf("\nScan done.\nNumber of BLE devices found: %d\n\n\n)", foundDevices.getCount());
@@ -134,7 +168,9 @@ void loop() {
   }
 
   while (pClient->isConnected()) {
-    rssi = pClient->getRssi();
+    */
+  while(true) {
+    rssi = -10;//pClient->getRssi();
     Serial.printf("RSSI: %d       ", rssi);
     Serial.printf("Moving Average: %d       ", rssiAvg.reading(rssi));
     Serial.printf("Average input count: %d\n", rssiAvg.getCount());
@@ -155,11 +191,10 @@ void loop() {
       if (millis() - lastAPICall >= 60000UL){
         if(WiFi.status() != WL_CONNECTED) 
           connectWifi();
+        parseWeatherData();        
         lastAPICall = millis();
-        getWeather();
         lampAdjust();
       }
-       
     }
   }
 
