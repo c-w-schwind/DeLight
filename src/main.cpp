@@ -5,8 +5,7 @@
 #include <movingAvg.h>
 #include "mySecrets.h"
 #include <ArduinoJson.h>
-//#include "esp_coexist_internal.h"
-//#define CONFIG_SW_COEXIST_ENABLE 1
+#include <time.h>
 
 //WIFI
 const char* ssid = SECRET_SSID;
@@ -35,12 +34,25 @@ movingAvg rssiAvg(10);
 StaticJsonDocument<1024> doc;
 int cloudiness;
 long sunrise, sunset;
+long timeToSunrise = 86400, timeToSunset = 86400;
 
 //LAMP
 bool isLampOn = false;
 
+//TIME
+const char* ntpServer = "pool.ntp.org";
 
 
+unsigned long getTime() {
+  time_t now;
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo, 60000U)) {    // trying for max 60 seconds
+    Serial.println("Failed to obtain time");
+    return(0);
+  }
+  time(&now);
+  return now;
+}
 
 bool connectToServer(BLEAddress pAddress) {
   pClient->connect(pAddress);
@@ -114,19 +126,9 @@ void parseWeatherData() {
     Serial.println(error.c_str());
     return;
   }
-  const char* name = doc["name"];
   cloudiness = doc["clouds"]["all"];
-  sunrise = long(doc["sys"]["sunrise"]) + long(doc["timezone"]);    // Sunrise in UTC, add timezone for local time
-  sunset = long(doc["sys"]["sunset"]) + long(doc["timezone"]);      // TODO: nur einmal täglich abrufen...
-
-  Serial.print("\nRight now in ");
-  Serial.println(name);
-  Serial.print("   Cloudiness: ");
-  Serial.println(cloudiness);
-  Serial.print("   Sunrise: ");
-  Serial.println(sunrise);
-  Serial.print("   Sunset:");
-  Serial.println(sunset);
+  sunrise = doc["sys"]["sunrise"];    // Sunrise in UTC, add timezone for local time
+  sunset = doc["sys"]["sunset"];      // TODO: nur einmal täglich abrufen...
 }
 
 void turnLampOff() {
@@ -137,7 +139,15 @@ void turnLampOff() {
   Serial.println("\nLAMP OFF\n");
 }
 
-void turnLampOn() {                     // TODO: default lamp settings
+void updateValues() {
+  long time = getTime();              // failure of getTime() returns 0
+  if (time != 0) {                    // only change when time was obtained
+    timeToSunset = sunset - time;
+    timeToSunrise = sunrise - time;
+  }
+}
+
+void turnLampOn() {                   // TODO: default lamp settings. only when settings not updated for a while
   digitalWrite(14, HIGH);   
   digitalWrite(26, HIGH);
   digitalWrite(33, HIGH);
@@ -145,8 +155,26 @@ void turnLampOn() {                     // TODO: default lamp settings
   Serial.println("\nLAMP ON\n");
 }
 
-void adjustLamp() {                     // TODO: input variables
-
+void updateLamp() {                   // TODO: input variables
+  updateValues();
+  if (timeToSunset != 86400 && timeToSunset >= -3600) {
+    
+  }
+  if (timeToSunrise != 86400 && timeToSunrise >= -3600) {
+    
+  }
+  Serial.print("\nRight now in ");
+  Serial.printf(doc["name"]);
+  Serial.print("   Cloudiness: ");
+  Serial.println(cloudiness);
+  Serial.print("   Sunrise: ");
+  Serial.println(sunrise);
+  Serial.print("   Sunset: ");
+  Serial.println(sunset);
+  Serial.print("   Time to sunset: ");
+  Serial.println(timeToSunset);
+  Serial.print("   Time to sunrise: ");
+  Serial.println(timeToSunrise);
 }
 
 void updateRssiWithDelay() {
@@ -165,6 +193,7 @@ void setup() {
   pinMode(14, OUTPUT);
   pinMode(26, OUTPUT);
   pinMode(33, OUTPUT);
+  configTime(0, 0, ntpServer);
 }
 
 
@@ -191,14 +220,16 @@ void loop() {
       if (isLampOn) turnLampOff();
     } else {
       if (!isLampOn) {
-        turnLampOn();
+        turnLampOn();         // TODO: only default if for a while no updated settings yet? 
         lastAPICall = millis() - /*10 **/ 60000UL;
+        Serial.println(millis());
+        Serial.println(millis() - /*10 **/ 60000UL);
       }
-      if (millis() - lastAPICall >= /*10 **/ 60000UL) {       //every 10 Minutes
-        if(WiFi.status() != WL_CONNECTED) connectWifi();  // TODO:
-        parseWeatherData();        
+      if (millis() - lastAPICall >= /*10 **/ 60000UL) {       // every 10 Minutes? 20?     TODO: remove -> /**/
+        if(WiFi.status() != WL_CONNECTED) connectWifi();      // TODO: disconnect? reasonable with > 10 minutes
+        parseWeatherData();
         lastAPICall = millis();
-        adjustLamp();
+        updateLamp();
       }
     }
   }
