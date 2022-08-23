@@ -13,7 +13,7 @@ const char* password = SECRET_PASS;
 
 //API
 const char* serverPathLatLon = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
-const char* serverPathZipCode = "https://api.openweathermap.org/data/2.5/weather?zip=01844,de&appid=5a246f369afff4ce3d85a772dfe8e031";
+const char* serverPathZipCode = "https://api.openweathermap.org/data/2.5/weather?zip=51103,de&appid=5a246f369afff4ce3d85a772dfe8e031";
 unsigned long lastAPICall;
 
 //BLE
@@ -48,9 +48,10 @@ int cloudFactor;
 const char* ntpServer = "pool.ntp.org";
 unsigned long currentTime; 
 unsigned long timestamp;
+int timeTracker = 0, totalSecondsToday;
 
 
-bool getTime() { // TODO: once a day; what if it fails?
+bool getTimeFromNTP() { // TODO: once a day
   time_t now;
   struct tm timeinfo;
   Serial.println("\nObtaining current time in unix format...");
@@ -157,7 +158,7 @@ void setSunFactor(long timeToSunset, long timeToSunrise) {
   } else if (timeToSunset < 1800 && timeToSunset >= -3600) {
     sunFactor = (1800 - timeToSunset) / 21;
   } else
-   sunFactor = 0;
+   sunFactor = 0;     // TODO: day 0, night 255
 }
 
 void setCloudFactor() {
@@ -170,7 +171,7 @@ void setRainFactor() {
 
 void updateValues() {
   updateCurrentTime();
-  timeToSunset = sunset - currentTime -10150;
+  timeToSunset = sunset - currentTime;
   timeToSunrise = sunrise - currentTime;
   setSunFactor(timeToSunset, timeToSunrise);      // TODO: je höher der Wert, desto weniger blau
   setCloudFactor();
@@ -226,6 +227,12 @@ void printInfo() {
   Serial.printf("   Rain factor is %d with a rain volume of %f within the last hour.\n\n", rainFactor, rainVolume);
 }
 
+void synchTimeOncePerDay() {
+  totalSecondsToday = currentTime % 86400;
+  if (totalSecondsToday < timeTracker) getTimeFromNTP();
+  timeTracker = totalSecondsToday;
+}
+
 void setup() {
   Serial.begin(115200);
   initBLEScan();
@@ -236,7 +243,7 @@ void setup() {
   pinMode(33, OUTPUT);
   configTime(0, 0, ntpServer);
   connectWifi();
-  getTime();
+  while(!getTimeFromNTP());  // don't start before time was got
   rainVolume = 0.0;
   cloudiness = 0.0;
 }
@@ -271,6 +278,7 @@ void loop() {
         if(WiFi.status() != WL_CONNECTED) connectWifi();      // TODO: disconnect? reasonable with > 10 minutes
         parseWeatherData();
         printInfo();
+        synchTimeOncePerDay();
         lastAPICall = millis();
       }
       updateLamp();
@@ -281,3 +289,12 @@ void loop() {
   WiFi.disconnect();
   rssiAvg.reset();
 }
+
+
+
+//
+// Bool zum ausschalten der Automatik
+// Zusätzliche konstante Werte zur Automatik (+/- Helligkeit)
+// Default Werte einstellen
+//
+//
