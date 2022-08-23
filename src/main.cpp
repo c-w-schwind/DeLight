@@ -13,7 +13,7 @@ const char* password = SECRET_PASS;
 
 //API
 const char* serverPathLatLon = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
-const char* serverPathZipCode = "https://api.openweathermap.org/data/2.5/weather?zip=51103,de&appid=5a246f369afff4ce3d85a772dfe8e031";
+const char* serverPathZipCode = "https://api.openweathermap.org/data/2.5/weather?zip=01844,de&appid=5a246f369afff4ce3d85a772dfe8e031";
 unsigned long lastAPICall;
 
 //BLE
@@ -32,26 +32,44 @@ movingAvg rssiAvg(10);
 
 //WEATHER
 StaticJsonDocument<1024> doc;
-int cloudiness;
 long sunrise, sunset;
-long timeToSunrise = 86400, timeToSunset = 86400;
+long timeToSunset, timeToSunrise;
+double cloudiness;
+double rainVolume;
 
 //LAMP
 bool isLampOn = false;
+int lampBrightness;
+int sunFactor;
+int rainFactor;
+int cloudFactor;
 
 //TIME
 const char* ntpServer = "pool.ntp.org";
+unsigned long currentTime; 
+unsigned long timestamp;
 
 
-unsigned long getTime() {
+bool getTime() { // TODO: once a day; what if it fails?
   time_t now;
   struct tm timeinfo;
+  Serial.println("\nObtaining current time in unix format...");
   if (!getLocalTime(&timeinfo, 60000U)) {    // trying for max 60 seconds
     Serial.println("Failed to obtain time");
-    return(0);
+    return(false);
   }
+  timestamp = millis();
   time(&now);
-  return now;
+  Serial.println("Successfully obtained current time.\n");
+  currentTime = now;
+  return true;
+}
+
+void updateCurrentTime() {
+  unsigned long timeVar = millis();
+  currentTime += (timeVar - timestamp) / 1000;
+  timeVar -= (timeVar - timestamp) % 1000;
+  timestamp = timeVar;
 }
 
 bool connectToServer(BLEAddress pAddress) {
@@ -86,14 +104,14 @@ void initBLEScan() {
 bool connectWifi() {
   int counter = 0;
   WiFi.begin(ssid, password);
-  Serial.print("Attempting to connect to WiFi with following SSID: ");
-  Serial.println(ssid);
+  Serial.print("\nAttempting to connect to WiFi with following SSID: ");
+  Serial.print(ssid);
   while (counter < 40) {  //attempting connection ends after 20 seconds (40 * 500ms)
     if (WiFi.status() != WL_CONNECTED) {
       delay (500);
       Serial.print(".");
     } else {
-      Serial.print("Connected to WiFi network with IP Address: ");
+      Serial.print("\nConnected to WiFi network with IP Address: ");
       Serial.println(WiFi.localIP());
       return true;
     }
@@ -105,15 +123,16 @@ bool connectWifi() {
 }
 
 String getRequestWeatherAPI() {
+  Serial.println("\nRequesting weather data from API...");
   HTTPClient http;
   http.begin(serverPathZipCode);
   int httpResponseCode = http.GET();
   String payload = "{}";
   if (httpResponseCode > 0) {
-    Serial.println("HTTP Response code: " + String(httpResponseCode));
+    Serial.println("Weather API HTTP response code: " + String(httpResponseCode));
     payload = http.getString();
   } else {
-    Serial.println("Error code: " + String(httpResponseCode));
+    Serial.println("API get request error code: " + String(httpResponseCode));
   }
   http.end();
   return payload;
@@ -126,9 +145,48 @@ void parseWeatherData() {
     Serial.println(error.c_str());
     return;
   }
+  sunrise = doc["sys"]["sunrise"];
+  sunset = doc["sys"]["sunset"];
+  rainVolume = doc["rain"]["1h"];
   cloudiness = doc["clouds"]["all"];
-  sunrise = doc["sys"]["sunrise"];    // Sunrise in UTC, add timezone for local time
-  sunset = doc["sys"]["sunset"];      // TODO: nur einmal täglich abrufen...
+}
+
+void setSunFactor(long timeToSunset, long timeToSunrise) {
+  if (timeToSunrise < 1800 && timeToSunrise >= -3600) {
+    sunFactor = 255 - (1800 - timeToSunrise) / 21; // range of 5400 seconds mapped onto 255 brightness steps
+  } else if (timeToSunset < 1800 && timeToSunset >= -3600) {
+    sunFactor = (1800 - timeToSunset) / 21;
+  } else
+   sunFactor = 0;
+}
+
+void setCloudFactor() {
+  cloudFactor = int(cloudiness * 0.5);
+}
+
+void setRainFactor() {
+  rainFactor = int(rainVolume * 30.0);
+}
+
+void updateValues() {
+  updateCurrentTime();
+  timeToSunset = sunset - currentTime -10150;
+  timeToSunrise = sunrise - currentTime;
+  setSunFactor(timeToSunset, timeToSunrise);      // TODO: je höher der Wert, desto weniger blau
+  setCloudFactor();
+  setRainFactor();
+}
+
+void calculateLampBrightness() {
+
+}
+
+void turnLampOn() {                   // TODO: default lamp settings. only when settings not updated for a while
+  digitalWrite(14, HIGH);             // TODO: check if in sunset or rise
+  digitalWrite(26, HIGH);             // TODO: mit settings von interface überschreiben (wenn gesetzt)
+  digitalWrite(33, HIGH);
+  isLampOn = true;
+  Serial.println("\nLAMP ON\n");
 }
 
 void turnLampOff() {
@@ -139,50 +197,33 @@ void turnLampOff() {
   Serial.println("\nLAMP OFF\n");
 }
 
-void updateValues() {
-  long time = getTime();              // failure of getTime() returns 0
-  if (time != 0) {                    // only change when time was obtained
-    timeToSunset = sunset - time;
-    timeToSunrise = sunrise - time;
-  }
-}
-
-void turnLampOn() {                   // TODO: default lamp settings. only when settings not updated for a while
-  digitalWrite(14, HIGH);   
-  digitalWrite(26, HIGH);
-  digitalWrite(33, HIGH);
-  isLampOn = true;
-  Serial.println("\nLAMP ON\n");
-}
-
-void updateLamp() {                   // TODO: input variables
+void updateLamp() {                   // TODO: input variables (?)
   updateValues();
-  if (timeToSunset != 86400 && timeToSunset >= -3600) {
-    
-  }
-  if (timeToSunrise != 86400 && timeToSunrise >= -3600) {
-    
-  }
-  Serial.print("\nRight now in ");
-  Serial.printf(doc["name"]);
-  Serial.print("   Cloudiness: ");
-  Serial.println(cloudiness);
-  Serial.print("   Sunrise: ");
-  Serial.println(sunrise);
-  Serial.print("   Sunset: ");
-  Serial.println(sunset);
-  Serial.print("   Time to sunset: ");
-  Serial.println(timeToSunset);
-  Serial.print("   Time to sunrise: ");
-  Serial.println(timeToSunrise);
+  calculateLampBrightness();
+  digitalWrite(14, HIGH); // lampBrightness + interface Werte
+                          // TODO: smoothing function with delay for jumping values
 }
+
 
 void updateRssiWithDelay() {
   rssi = -10;//pClient->getRssi();
   Serial.printf("RSSI: %d       ", rssi);
   Serial.printf("Moving Average: %d       ", rssiAvg.reading(rssi));
-  Serial.printf("Average input count: %d\n", rssiAvg.getCount());
+  Serial.printf("Average calculated from %d inputs.\n", rssiAvg.getCount());
   delay(500);
+}
+
+void printInfo() {
+  Serial.print("\nRight now in ");
+  Serial.printf(doc["name"]);
+  Serial.println();
+  Serial.print("   Time to sunset: ");
+  Serial.println(timeToSunset);
+  Serial.print("   Time to sunrise: ");
+  Serial.println(timeToSunrise);
+  Serial.printf("   Sun factor is %d\n", sunFactor);
+  Serial.printf("   Cloud factor is %d with a cloudiness percentage of %f.\n", cloudFactor, cloudiness);
+  Serial.printf("   Rain factor is %d with a rain volume of %f within the last hour.\n\n", rainFactor, rainVolume);
 }
 
 void setup() {
@@ -194,8 +235,11 @@ void setup() {
   pinMode(26, OUTPUT);
   pinMode(33, OUTPUT);
   configTime(0, 0, ntpServer);
+  connectWifi();
+  getTime();
+  rainVolume = 0.0;
+  cloudiness = 0.0;
 }
-
 
 void loop() {
   /*
@@ -222,15 +266,14 @@ void loop() {
       if (!isLampOn) {
         turnLampOn();         // TODO: only default if for a while no updated settings yet? 
         lastAPICall = millis() - /*10 **/ 60000UL;
-        Serial.println(millis());
-        Serial.println(millis() - /*10 **/ 60000UL);
       }
-      if (millis() - lastAPICall >= /*10 **/ 60000UL) {       // every 10 Minutes? 20?     TODO: remove -> /**/
+      if (millis() - lastAPICall >= /*10 **/ 20000UL) {       // every 10 Minutes? 20?     TODO: remove -> /**/
         if(WiFi.status() != WL_CONNECTED) connectWifi();      // TODO: disconnect? reasonable with > 10 minutes
         parseWeatherData();
+        printInfo();
         lastAPICall = millis();
-        updateLamp();
       }
+      updateLamp();
     }
   }
 
