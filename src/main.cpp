@@ -6,6 +6,14 @@
 #include "mySecrets.h"
 #include <ArduinoJson.h>
 #include <time.h>
+#include <Adafruit_NeoPixel.h>
+
+//NEOPIXEL
+#ifdef __AVR__
+  #include <avr/power.h>
+#endif
+#define NUMPIXELS 12
+Adafruit_NeoPixel pixels(NUMPIXELS, 16, NEO_GRB + NEO_KHZ800);
 
 //WIFI
 const char* ssid = SECRET_SSID;
@@ -14,7 +22,9 @@ const char* password = SECRET_PASS;
 //API
 const char* serverPathLatLon = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
 const char* serverPathZipCode = "https://api.openweathermap.org/data/2.5/weather?zip=51103,de&appid=5a246f369afff4ce3d85a772dfe8e031";
+const char* localhost = "http://192.168.1.116:8000/json";
 unsigned long lastAPICall;
+unsigned long apiCallFrequency = 20000;
 
 //BLE
 static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); 
@@ -51,19 +61,17 @@ unsigned long timestamp;
 int timeTracker = 0, totalSecondsToday;
 
 
-bool getTimeFromNTP() { // TODO: once a day
+void getTimeFromNTP() {
   time_t now;
   struct tm timeinfo;
   Serial.println("\nObtaining current time in unix format...");
-  if (!getLocalTime(&timeinfo, 60000U)) {    // trying for max 60 seconds
-    Serial.println("Failed to obtain time");
-    return(false);
+  while (!getLocalTime(&timeinfo, 30000U)) {    // trying for 30 seconds. necessary. won't continue until time is got
+    Serial.println("Failed to obtain time within 30 seconds. Trying again.");
   }
   timestamp = millis();
   time(&now);
   Serial.println("Successfully obtained current time.\n");
   currentTime = now;
-  return true;
 }
 
 void updateCurrentTime() {
@@ -73,16 +81,17 @@ void updateCurrentTime() {
   timestamp = timeVar;
 }
 
+void synchTimeOncePerDay() {
+  totalSecondsToday = currentTime % 86400;
+  if (totalSecondsToday < timeTracker)
+    getTimeFromNTP();
+  timeTracker = totalSecondsToday;
+}
+
 bool connectToServer(BLEAddress pAddress) {
   pClient->connect(pAddress);
   BLERemoteService *pRemoteService = pClient->getService(serviceUUID);
-  if (pRemoteService != nullptr) {
-    Serial.println("Connected to server");
-    return true;
-  } else {
-    Serial.println("Connection to server failed");
-    return false;
-  }
+  return pRemoteService != nullptr ? true : false;
 }
 
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
@@ -93,7 +102,7 @@ class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
 
 void initBLEScan() {
   BLEDevice::init("");
-  Serial.println("ESP32 BLE Server program. Scanning for Bluetooth devices...");
+  Serial.println("ESP32 BLE DeLight program. Scanning for partner device...");
   pBLEScan = BLEDevice::getScan();                                            // create new scan
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());  // Call the class that is defined above
   pBLEScan->setActiveScan(true);                                              // active scan uses more power, but get results faster
@@ -103,24 +112,31 @@ void initBLEScan() {
 }
 
 bool connectWifi() {
-  int counter = 0;
-  WiFi.begin(ssid, password);
-  Serial.print("\nAttempting to connect to WiFi with following SSID: ");
-  Serial.print(ssid);
-  while (counter < 40) {  //attempting connection ends after 20 seconds (40 * 500ms)
-    if (WiFi.status() != WL_CONNECTED) {
-      delay (500);
-      Serial.print(".");
-    } else {
-      Serial.print("\nConnected to WiFi network with IP Address: ");
-      Serial.println(WiFi.localIP());
-      return true;
+  if(WiFi.status() != WL_CONNECTED) {
+    int counter = 0;
+    WiFi.begin(ssid, password);
+    Serial.printf("\nAttempting to connect to WiFi with SSID \"%s\"\n", ssid);
+    while (counter < 40) {  //attempting connection ends after 20 seconds (40 * 500ms)
+      if (WiFi.status() != WL_CONNECTED) {
+        delay (500);
+        Serial.print(".");
+      } else {
+        Serial.print("\nConnected to WiFi network with IP Address: ");
+        Serial.println(WiFi.localIP());
+        return true;
+      }
+      ++counter;
     }
-    ++counter;
+    Serial.print("\nCould not connect to WiFi network: ");
+    Serial.println(ssid);
+    return false;
   }
-  Serial.print("\nCould not connect to WiFi network: ");
-  Serial.println(ssid);
-  return false;
+  return true;
+}
+
+void disconnectWifi() {
+  WiFi.disconnect();
+  Serial.println("Disconnected WiFi.\n");
 }
 
 String getRequestWeatherAPI() {
@@ -179,35 +195,52 @@ void updateValues() {
 }
 
 void calculateLampBrightness() {
+  lampBrightness = 100 + sunFactor + cloudFactor + rainFactor;
+  // TODO: interface values + default values default nur bei tag?
 
 }
 
-void turnLampOn() {                   // TODO: default lamp settings. only when settings not updated for a while
-  digitalWrite(14, HIGH);             // TODO: check if in sunset or rise
-  digitalWrite(26, HIGH);             // TODO: mit settings von interface überschreiben (wenn gesetzt)
-  digitalWrite(33, HIGH);
+void turnLampOn() {                   // TODO: default lamp settings. siehe calculateLampBrightness: default. only when settings not updated for a while
+  pixels.clear(); // Set all pixel colors to 'off'
+  for(int i=0; i<NUMPIXELS; i++) {
+    // pixels.Color() takes RGB values, from 0,0,0 up to 255,255,255
+    pixels.setPixelColor(i, pixels.Color(255, 255, 255));
+  }
+  //for (int i = 0; i < 255; ++i) {
+  //  pixels.setBrightness(i);
+
+    pixels.show();
+  //  delay(10);
+  //}
+  digitalWrite(27,HIGH);
   isLampOn = true;
   Serial.println("\nLAMP ON\n");
+  // TODO: check if in sunset or rise
+  // TODO: mit settings von interface überschreiben (wenn gesetzt)
 }
 
 void turnLampOff() {
-  digitalWrite(14, LOW);
-  digitalWrite(26, LOW);
-  digitalWrite(33, LOW);
+  //for (int i = 255; i > 0; --i) {
+  //  pixels.setBrightness(i);
+    pixels.clear();
+    pixels.show();
+  //  delay(10);
+  //}
+  digitalWrite(27,LOW);
   isLampOn = false;
   Serial.println("\nLAMP OFF\n");
+  
 }
 
 void updateLamp() {                   // TODO: input variables (?)
   updateValues();
   calculateLampBrightness();
-  digitalWrite(14, HIGH); // lampBrightness + interface Werte
+  //analogWrite(14, lampBrightness); // lampBrightness + interface Werte
                           // TODO: smoothing function with delay for jumping values
 }
 
-
 void updateRssiWithDelay() {
-  rssi = -10;//pClient->getRssi();
+  rssi = pClient->getRssi();
   Serial.printf("RSSI: %d       ", rssi);
   Serial.printf("Moving Average: %d       ", rssiAvg.reading(rssi));
   Serial.printf("Average calculated from %d inputs.\n", rssiAvg.getCount());
@@ -217,54 +250,45 @@ void updateRssiWithDelay() {
 void printInfo() {
   Serial.print("\nRight now in ");
   Serial.printf(doc["name"]);
-  Serial.println();
-  Serial.print("   Time to sunset: ");
-  Serial.println(timeToSunset);
-  Serial.print("   Time to sunrise: ");
-  Serial.println(timeToSunrise);
-  Serial.printf("   Sun factor is %d\n", sunFactor);
-  Serial.printf("   Cloud factor is %d with a cloudiness percentage of %f.\n", cloudFactor, cloudiness);
-  Serial.printf("   Rain factor is %d with a rain volume of %f within the last hour.\n\n", rainFactor, rainVolume);
+  Serial.printf("\n\tTime to sunset: %ld\n", timeToSunset);
+  Serial.printf("\tTime to sunrise: %ld\n", timeToSunrise);
+  Serial.printf("\tSun factor is %d.\n", sunFactor);
+  Serial.printf("\tCloud factor is %d with a cloudiness percentage of %f.\n", cloudFactor, cloudiness);
+  Serial.printf("\tRain factor is %d with a rain volume of %f within the last hour.\n\n", rainFactor, rainVolume);
 }
 
-void synchTimeOncePerDay() {
-  totalSecondsToday = currentTime % 86400;
-  if (totalSecondsToday < timeTracker) getTimeFromNTP();
-  timeTracker = totalSecondsToday;
-}
 
 void setup() {
   Serial.begin(115200);
   initBLEScan();
   pClient = BLEDevice::createClient();
   rssiAvg.begin();
-  pinMode(14, OUTPUT);
-  pinMode(26, OUTPUT);
-  pinMode(33, OUTPUT);
+  pinMode(27, OUTPUT);
   configTime(0, 0, ntpServer);
-  connectWifi();
-  while(!getTimeFromNTP());  // don't start before time was got
-  rainVolume = 0.0;
-  cloudiness = 0.0;
+  while (!connectWifi()); // necessary. won't continue until connected.
+  getTimeFromNTP();
+  disconnectWifi();
+  pixels.begin();
 }
 
 void loop() {
   /*
   while (!pClient->isConnected()) {
+    Serial.println("Starting BLE scan...");
     foundDevices = pBLEScan->start(3); // Scan for 3 seconds
-    Serial.printf("\nScan done.\nNumber of BLE devices found: %d\n\n\n)", foundDevices.getCount());
-
+    Serial.printf("\nScan done.\nNumber of BLE devices found: %d\n\n\n", foundDevices.getCount());
     for (int i = 0; i < foundDevices.getCount(); i++) {
       Scanned_BLE_Address = foundDevices.getDevice(i).getAddress().toString().c_str();
       if (Scanned_BLE_Address == Partner_BLE_Address) {
-        Serial.println("Found partner device. Connecting to server as client");
-        connectToServer(foundDevices.getDevice(i).getAddress()) ? Serial.println("Paired with partner device") : Serial.println("Pairing failed");
+        Serial.println("Found partner device. Connecting to server as client.");
+        connectToServer(foundDevices.getDevice(i).getAddress()) ? Serial.println("Connected to partner device.") : Serial.println("Connection to partner device failed.");
       }
     }
   }
 
   while (pClient->isConnected()) {
-  */
+    pBLEScan->stop();// TODO: check
+    // */
   while(true) {
     updateRssiWithDelay();
     if (rssiAvg.getAvg() < -80) {
@@ -272,25 +296,32 @@ void loop() {
     } else {
       if (!isLampOn) {
         turnLampOn();         // TODO: only default if for a while no updated settings yet? 
-        lastAPICall = millis() - /*10 **/ 60000UL;
+        lastAPICall = millis() - apiCallFrequency;  
       }
-      if (millis() - lastAPICall >= /*10 **/ 20000UL) {       // every 10 Minutes? 20?     TODO: remove -> /**/
-        if(WiFi.status() != WL_CONNECTED) connectWifi();      // TODO: disconnect? reasonable with > 10 minutes
-        parseWeatherData();
-        printInfo();
-        synchTimeOncePerDay();
-        lastAPICall = millis();
+      if (millis() - lastAPICall >= apiCallFrequency) {       // TODO: every 10 Minutes? 20?
+        if (connectWifi()) {                                  // TODO: disconnect? seems reasonable with > 10 minutes
+          parseWeatherData();
+          printInfo();
+          synchTimeOncePerDay();
+          lastAPICall = millis();
+          //disconnectWifi();
+        }      
       }
-      updateLamp();
+      updateLamp(); // TODO: here? independend of api call, because of sun value. 
     }
   }
 
-  Serial.println("\nDisconnected\n");
-  WiFi.disconnect();
+  Serial.println("\nDisconnected from partner device.");
+  disconnectWifi();
   rssiAvg.reset();
 }
 
-
+// connect wifi
+// api call
+// parse api
+// set values
+//
+//
 
 //
 // Bool zum ausschalten der Automatik
