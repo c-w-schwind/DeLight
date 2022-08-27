@@ -8,6 +8,9 @@
 #include <time.h>
 #include <Adafruit_NeoPixel.h>
 
+// DEFAULTS
+#define DEFAULT_HUE 5000
+
 // NEOPIXEL VARIABLES
 #ifdef __AVR__
   #include <avr/power.h>
@@ -19,12 +22,19 @@ Adafruit_NeoPixel pixels(NUMPIXELS, 16, NEO_GRB + NEO_KHZ800);
 const char* ssid = SECRET_SSID;
 const char* password = SECRET_PASS;
 
+// USER INTERFACE VARIABLES
+unsigned long lastUserInterfaceCall;
+unsigned int userHue;
+float userSaturation;
+int userBrightnessFactor;
+unsigned long callFrequencyUserInterface = 5000;    // check for updates every 5 seconds
+
 // API VARIABLES
 const char* serverPathLatLon = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
 const char* serverPathZipCode = "https://api.openweathermap.org/data/2.5/weather?zip=51103,de&appid=5a246f369afff4ce3d85a772dfe8e031";
-const char* localhost = "http://192.168.1.116:8000/json"; // TODO: iteration function for finding fourth number?
+const char* serverPathLocalhost = "http://192.168.178.39:8080/json"; // Future update: iteration function for finding 4th number?
 unsigned long lastAPICall;
-unsigned long apiCallFrequency = 10000;       // TODO: every 10 Minutes? 20?
+unsigned long callFrequencyAPI = 60000 * 5;       // every 5 Minutes
 
 // BLE VARIABLES
 static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); 
@@ -48,24 +58,27 @@ double cloudiness;
 double rainVolume;
 
 // LIGHT VARIABLES
-int additionalLamp = 27;
 bool isLampOn = false;
-bool isNightFiltered = true;
-int lampSaturation;
-int lampBrightness;
-unsigned int lampHue;
-unsigned int hueValue = 5000;
+bool isManualMode = true;
+
 int nightFilter;
 int sunFactor;
 int rainFactor;
 int cloudFactor;
 
+int lampSaturation = 255;
+int lampSaturationOld;
+int lampBrightness;
+int lampBrightnessOld;
+unsigned int lampHue = 5000;
+unsigned int lampHueOld;
 
 // TIME VARIABLES
 const char* ntpServer = "pool.ntp.org";
 unsigned long currentTime; 
 unsigned long timestamp;
 int timeTracker = 0, totalSecondsToday;
+
 
 
 // TIME
@@ -121,10 +134,7 @@ void initBLEScan() {
   Serial.println("ESP32 BLE DeLight program. Scanning for partner device...");
   pBLEScan = BLEDevice::getScan();                                            // create new scan
   pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());  // Call the class that is defined above
-  pBLEScan->setActiveScan(true);                                              // active scan uses more power, but get results faster
-  //pBLEScan->setInterval(scanInterval);                                      // in msec
-  //pBLEScan->setWindow(scanWindow);                                          // in msec
-  //pBLEScan->start(scanTime);                                                // in sec
+  pBLEScan->setActiveScan(true);                                              // active scan uses more power, but get results faster TODO
 }
 
 void updateRssiWithDelay() {
@@ -167,6 +177,51 @@ void disconnectWifi() {
 }
 
 
+// USER INTERFACE
+
+String getRequestUserInterface() {
+  Serial.println("\nRequesting user data from interface...");
+  HTTPClient http;
+  http.begin(serverPathLocalhost);
+  int httpResponseCode = http.GET();
+  String payload = "{}";
+  if (httpResponseCode > 0) {
+    Serial.println("User interface HTTP response code: " + String(httpResponseCode) + "\n");
+    payload = http.getString();
+  } else {
+    Serial.println("User interface get request error code: " + String(httpResponseCode) + "\n");
+  }
+  http.end();
+  return payload;
+}
+
+void parseUserInterfaceData(String userInterfaceData) {
+  DeserializationError error = deserializeJson(doc, userInterfaceData);
+  if (error) {
+    Serial.print("deserializeJson() of user interface data failed: ");
+    Serial.println(error.c_str());
+    return;
+  }
+  userHue = doc["color"][0];
+  userSaturation = doc["color"][1];
+  userBrightnessFactor = doc["brightness"];
+  isManualMode = doc["automationOff"];
+}
+
+void updateUserInterfaceFactors () {
+  if (connectWifi()) {
+    parseUserInterfaceData(getRequestUserInterface());
+    lastUserInterfaceCall = millis();
+    userHue *= 182;         // mapped from 360 values to 65.536
+    userSaturation *= 2.55; // mapped from 100 values to 255
+    if (!isManualMode) {  // in automation mode user should be able to completely overpower brightness values set by other factors
+      userBrightnessFactor = (userBrightnessFactor - 128) * 2;
+    }
+  } else 
+    Serial.println("Connection to WiFi was not possible. User interface factors have not been updated.");
+}
+
+
 // WEATHER
 
 String getRequestWeatherAPI() {
@@ -176,10 +231,10 @@ String getRequestWeatherAPI() {
   int httpResponseCode = http.GET();
   String payload = "{}";
   if (httpResponseCode > 0) {
-    Serial.println("Weather API HTTP response code: " + String(httpResponseCode));
+    Serial.println("Weather API HTTP response code: " + String(httpResponseCode) + "\n");
     payload = http.getString();
   } else {
-    Serial.println("API get request error code: " + String(httpResponseCode));
+    Serial.println("API get request error code: " + String(httpResponseCode) + "\n");
   }
   http.end();
   return payload;
@@ -188,7 +243,7 @@ String getRequestWeatherAPI() {
 void parseWeatherData(String weatherData) {
   DeserializationError error = deserializeJson(doc, weatherData);
   if (error) {
-    Serial.print("deserializeJson() failed: ");
+    Serial.print("deserializeJson() of weather data failed: ");
     Serial.println(error.c_str());
     return;
   }
@@ -199,30 +254,27 @@ void parseWeatherData(String weatherData) {
 }
 
 void printWeatherInfo() {
-  Serial.print("\nRight now in ");
+  Serial.print("Right now in ");
   Serial.printf(doc["name"]);
   Serial.printf("\n\tTime to sunset: %ld\n", timeToSunset);
   Serial.printf("\tTime to sunrise: %ld\n", timeToSunrise);
-  Serial.printf("\tSun factor is %d.\n", sunFactor);
   Serial.printf("\tCloud factor is %d with a cloudiness percentage of %f.\n", cloudFactor, cloudiness);
   Serial.printf("\tRain factor is %d with a rain volume of %f within the last hour.\n\n", rainFactor, rainVolume);
 }
 
 void setNightFilter() {
-  if (isNightFiltered) {
-    if (timeToSunrise < 900 && timeToSunrise >= -900) {       // decreasing blue light filter over 30 minutes. starting 15 minutes before sunrise.
-      nightFilter = 100 - (900 - timeToSunrise) / 7;          // range of 1800 seconds mapped onto 255 saturation steps.
-    } else if (timeToSunset < 900 && timeToSunset >= -900) {  // increasing blue light filter over 30 minutes. starting 15 minutes before sunset.
-      nightFilter = (900 - timeToSunset) / 7;                 // range of 1800 seconds mapped onto 255 saturation steps.
-    } else nightFilter = isNight() ? 255 : 0;                 // complete filter active over the course of the night.
-  }
+  if (timeToSunrise < 900 && timeToSunrise >= -900) {         // decreasing blue light filter over 30 minutes. starting 15 minutes before sunrise.
+    nightFilter = 100 - (900 - timeToSunrise) / 7;            // range of 1800 seconds mapped onto 255 saturation steps.
+  } else if (timeToSunset < 900 && timeToSunset >= -900) {    // increasing blue light filter over 30 minutes. starting 15 minutes before sunset.
+    nightFilter = (900 - timeToSunset) / 7;                   // range of 1800 seconds mapped onto 255 saturation steps.
+  } else nightFilter = isNight() ? 255 : 0;                   // complete filter active over the course of the night.
 }
 
 void setSunFactor() {
-  if (timeToSunrise < 1800 && timeToSunrise >= -1800) {       // decreasing brightness over 90 minutes. starting 30 minutes before sunrise.
-    sunFactor = 255 - (1800 - timeToSunrise) / 14;            // range of 3600 seconds mapped onto 255 brightness steps.
-  } else if (timeToSunset < 1800 && timeToSunset >= -1800) {  // increasing brightness over 90 minutes. starting 30 minutes before sunset.
-    sunFactor = (1800 - timeToSunset) / 14;                   // range of 3600 seconds mapped onto 255 brightness steps.
+  if (timeToSunrise < 900 && timeToSunrise >= -1800) {        // decreasing brightness over 45 minutes. starting 15 minutes before sunrise.
+    sunFactor = 255 - (900 - timeToSunrise) / 10.6;           // range of 2700 seconds mapped onto 255 brightness steps.
+  } else if (timeToSunset < 900 && timeToSunset >= -1800) {   // increasing brightness over 45 minutes. starting 15 minutes before sunset.
+    sunFactor = (900 - timeToSunset) / 10.6;                  // range of 2700 seconds mapped onto 255 brightness steps.
   } else sunFactor = isNight() ? 255 : 0;                     // full brightness setting active over the course of the night.
 }
 
@@ -258,30 +310,37 @@ void updateWeatherAndTimeFactorsByAPICall () {
 
 // LIGHT SETTINGS
 
-void calculateLampHSV() { // TODO: default lamp settings. siehe calculateLampHSV: default. only when settings not updated for a while
-  if (lastAPICall == 0 || millis() - lastAPICall >= apiCallFrequency * 3 /*|| isActiveUserDefault*/) { // call default values if: too long since last update
-    lampHue = hueValue;                                                       // TODO: hier drüber: isActiveUserDefault bool & logic
-    lampSaturation = 300;       // TODO: ersetzen mit defaults, die von user gesetzt werden können
-    lampBrightness = 255;
-    lastAPICall = millis() - apiCallFrequency;
+void calculateLampHSV() {
+  lampHueOld = lampHue;
+  lampSaturationOld = lampSaturation;
+  lampBrightnessOld = lampBrightness;
+  
+  if (!isManualMode) {
+    lampBrightness = sunFactor + cloudFactor + rainFactor;
+    if (lampBrightness > 255) lampBrightness = 255;
+    lampBrightness += userBrightnessFactor;   // in automation mode userBrightnessFactor ranges from -256
+    lampSaturation = nightFilter;             // to 255 for ability to completely overpower auto values
+    lampHue = DEFAULT_HUE;
   } else {
-    lampBrightness = sunFactor + cloudFactor + rainFactor;  // + interface + default (<-- separately? or interface changes default?)
-    lampSaturation = nightFilter;                           // + interface  
-    lampHue = hueValue;   // TODO: duplicated line...
-    // TODO: interface values + default values default nur bei tag?
+    lampHue = userHue;
+    lampSaturation = userSaturation;
+    lampBrightness = userBrightnessFactor;
   }
-  lampBrightness = lampBrightness > 255 ? 255 : lampBrightness;
-  lampSaturation = lampSaturation > 255 ? 255 : lampSaturation;
+
+  lampBrightness = lampBrightness > 255 ? 255 : lampBrightness < 0 ? 0 : lampBrightness;
+  if (lampSaturation > 255) lampSaturation = 255;
 }
 
 void calculateAllValuesForLampUpdate() {
-  millis() - lastAPICall >= apiCallFrequency ? updateWeatherAndTimeFactorsByAPICall() : updateWeatherAndTimeFactorsLocally();
+  millis() - lastAPICall >= callFrequencyAPI ? updateWeatherAndTimeFactorsByAPICall() : updateWeatherAndTimeFactorsLocally();
+  if (millis() - lastUserInterfaceCall >= callFrequencyUserInterface) 
+    updateUserInterfaceFactors();
   calculateLampHSV();
 }
 
+
 void turnLampOff() {
   for (int i = lampBrightness; i >= 0; --i) {
-    analogWrite(additionalLamp,i);
     pixels.fill(pixels.ColorHSV(lampHue, lampSaturation, i));
     pixels.show();
     delay(15);
@@ -291,46 +350,74 @@ void turnLampOff() {
 }
 
 void turnLampOn() {
+  if (isManualMode) {
+    lampBrightness = userBrightnessFactor;
+  }
   for (int i = 0; i < lampBrightness; ++i) {
-    analogWrite(additionalLamp,i);
     pixels.fill(pixels.ColorHSV(lampHue, lampSaturation, i));
     pixels.show();
     delay(5);
   }
-  isLampOn = true;                    // TODO: check if in sunset or rise
-  Serial.println("\nLAMP ON\n");      // TODO: mit settings von interface überschreiben (wenn gesetzt)
+  isLampOn = true;
+  Serial.println("\nLAMP ON\n");
 }
 
 void updateLamp() {
-  // TODO: smoothing function with delay for jumping values: while (oldLampHue != lampHue && oldLampSaturation != lampSaturation && ) ++
-  analogWrite(additionalLamp,lampBrightness);
-  pixels.fill(pixels.ColorHSV(lampHue, lampSaturation, lampBrightness));
-  pixels.show();
+  for (int i = lampBrightnessOld; i != lampBrightness; lampBrightnessOld < lampBrightness ? ++i : --i) {
+    pixels.fill(pixels.ColorHSV(lampHueOld, lampSaturationOld, i));
+    pixels.show();
+    delay(5);
+  }
+  if (lampBrightness == 0 && isLampOn) {
+    turnLampOff();
+  } else {
+    if (lampHue != lampHueOld) {                                      // if change in hue value:
+      for (int i = lampSaturationOld; i > 0; --i) {                   // - take saturation away
+        pixels.fill(pixels.ColorHSV(lampHueOld, i, lampBrightness));
+        pixels.show();
+        delay(4);
+      }
+      pixels.fill(pixels.ColorHSV(lampHue, 0, lampBrightness));       // - set correct hue
+      for (int i = 0; i < lampSaturation; ++i) {                      // - then bring saturation back
+        pixels.fill(pixels.ColorHSV(lampHue, i, lampBrightness));
+        pixels.show();
+        delay(2);
+      }
+    } else {
+      for (int i = lampSaturationOld; i != lampSaturation; lampSaturationOld < lampSaturation ? ++i : --i) {
+        pixels.fill(pixels.ColorHSV(lampHue, i, lampBrightness));
+        pixels.show();
+        delay(3);
+      }
+    }
+  }
 }
+
 
 
 void setup() {
   Serial.begin(115200);
-  delay(2000); //sometimes
+  delay(500);                   // sometimes printed lines got cut off...
   configTime(0, 0, ntpServer);
-  while (!connectWifi()); // necessary. won't continue until connected.
+  while (!connectWifi());       // necessary. won't continue until connected.
   getTimeFromNTP();
   updateWeatherAndTimeFactorsByAPICall();
+  updateUserInterfaceFactors();
+  calculateLampHSV();
   disconnectWifi();
-
+  Serial.println("Sun factor is: ");
+  Serial.println(vari);
   initBLEScan();
   pClient = BLEDevice::createClient();
   rssiAvg.begin();
   
-  pinMode(additionalLamp, OUTPUT);
   pixels.begin();
   pixels.clear();
   pixels.show();
-  lastAPICall = 0;
 }
 
 void loop() {
-  ///*
+  /*
   while (!pClient->isConnected()) {
     Serial.println("Starting new BLE scan...");
     foundDevices = pBLEScan->start(3); // Scanning for 3 seconds
@@ -346,13 +433,13 @@ void loop() {
 
   while (pClient->isConnected()) {
     // */
-  //while(true) {
+  while(true) {
     updateRssiWithDelay();
     if (rssiAvg.getAvg() < -80) {
       if (isLampOn) turnLampOff();
     } else {
       calculateAllValuesForLampUpdate();
-      if (!isLampOn) {
+      if (!isLampOn && lampBrightness != 0) {
         turnLampOn();
       }
       updateLamp();
@@ -364,9 +451,6 @@ void loop() {
   rssiAvg.reset();
 }
 
-//
-// Bool zum ausschalten der Automatik
-// Zusätzliche konstante Werte zur Automatik (+/- Helligkeit)
-// Default Werte einstellen
-//
-//
+
+// rename: isManual --> also in ui.
+// explain ui in ui.
