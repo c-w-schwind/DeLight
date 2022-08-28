@@ -16,7 +16,7 @@
   #include <avr/power.h>
 #endif
 #define NUMPIXELS 12
-Adafruit_NeoPixel pixels(NUMPIXELS, 16, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel lamp(NUMPIXELS, 16, NEO_GRB + NEO_KHZ800);
 
 // WIFI VARIABLES
 const char* ssid = SECRET_SSID;
@@ -26,15 +26,16 @@ const char* password = SECRET_PASS;
 unsigned long lastUserInterfaceCall;
 unsigned int userHue;
 float userSaturation;
+int userBrightness;
 int userBrightnessFactor;
-unsigned long callFrequencyUserInterface = 5000;    // check for updates every 5 seconds
+unsigned long callFrequencyUserInterface = 5000;  // check for updates every 5 seconds
 
 // API VARIABLES
 const char* serverPathLatLon = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
 const char* serverPathZipCode = "https://api.openweathermap.org/data/2.5/weather?zip=51103,de&appid=5a246f369afff4ce3d85a772dfe8e031";
-const char* serverPathLocalhost = "http://192.168.178.39:8080/json"; // Future update: iteration function for finding 4th number?
+const char* serverPathLocalhost = "http://192.168.179.7:8080/json"; // Future update: iteration function for finding 4th number?
 unsigned long lastAPICall;
-unsigned long callFrequencyAPI = 60000 * 5;       // every 5 Minutes
+unsigned long callFrequencyAPI = 60000 * 5;  // call API for weather info every 5 Minutes
 
 // BLE VARIABLES
 static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); 
@@ -54,24 +55,25 @@ movingAvg rssiAvg(10);
 StaticJsonDocument<1024> doc;
 long sunrise, sunset;
 long timeToSunset, timeToSunrise;
+
 double cloudiness;
 double rainVolume;
-
-// LIGHT VARIABLES
-bool isLampOn = false;
-bool isManualMode = true;
 
 int nightFilter;
 int sunFactor;
 int rainFactor;
 int cloudFactor;
 
-int lampSaturation = 255;
+// LIGHT VARIABLES
+bool isLampOn = false;
+bool isManualMode = false;
+
+unsigned int lampHue = 5000;
+unsigned int lampHueOld;
+int lampSaturation;
 int lampSaturationOld;
 int lampBrightness;
 int lampBrightnessOld;
-unsigned int lampHue = 5000;
-unsigned int lampHueOld;
 
 // TIME VARIABLES
 const char* ntpServer = "pool.ntp.org";
@@ -81,14 +83,15 @@ int timeTracker = 0, totalSecondsToday;
 
 
 
+
 // TIME
 
 void getTimeFromNTP() {
   time_t now;
   struct tm timeinfo;
   Serial.println("\nObtaining current time in unix format...");
-  while (!getLocalTime(&timeinfo, 30000U)) {    // trying for 30 seconds. necessary. won't continue until time is got
-    Serial.println("Failed to obtain time within 30 seconds. Trying again.");
+  while (!getLocalTime(&timeinfo, 30000U)) {    // necessary. won't continue until time is got. trying for 30 sec. 
+    Serial.println("Failed to obtain time within 30 seconds. Trying again...");
   }
   timestamp = millis();
   time(&now);
@@ -117,24 +120,24 @@ bool isNight() {
 
 // BLE CONNECTION
 
-bool connectToServer(BLEAddress pAddress) {
-  pClient->connect(pAddress);
-  BLERemoteService *pRemoteService = pClient->getService(serviceUUID);
-  return pRemoteService != nullptr ? true : false;
-}
-
 class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) {
     Serial.printf("Scan Result: %s \n", advertisedDevice.toString().c_str());
   }
 };
 
+bool connectToServer(BLEAddress pAddress) {
+  pClient->connect(pAddress);
+  BLERemoteService *pRemoteService = pClient->getService(serviceUUID);
+  return pRemoteService != nullptr ? true : false;
+}
+
 void initBLEScan() {
   BLEDevice::init("");
   Serial.println("ESP32 BLE DeLight program. Scanning for partner device...");
-  pBLEScan = BLEDevice::getScan();                                            // create new scan
-  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());  // Call the class that is defined above
-  pBLEScan->setActiveScan(true);                                              // active scan uses more power, but get results faster TODO
+  pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
+  pBLEScan->setActiveScan(true);
 }
 
 void updateRssiWithDelay() {
@@ -152,7 +155,7 @@ bool connectWifi() {
   if(WiFi.status() != WL_CONNECTED) {
     int counter = 0;
     WiFi.begin(ssid, password);
-    Serial.printf("\nAttempting to connect to WiFi with SSID \"%s\"\n", ssid);
+    Serial.printf("\nAttempting to connect to WiFi with SSID \"%s\"", ssid);
     while (counter < 40) {  //attempting connection ends after 20 seconds (40 * 500ms)
       if (WiFi.status() != WL_CONNECTED) {
         delay (500);
@@ -202,10 +205,18 @@ void parseUserInterfaceData(String userInterfaceData) {
     Serial.println(error.c_str());
     return;
   }
-  userHue = doc["color"][0];
-  userSaturation = doc["color"][1];
-  userBrightnessFactor = doc["brightness"];
-  isManualMode = doc["automationOff"];
+  if (!userInterfaceData.equals("{}")) {
+    userHue = doc["color"][0];
+    userSaturation = doc["color"][1];
+    userBrightnessFactor = doc["brightness"][0];
+    userBrightness = doc["brightness"][1];
+    isManualMode = doc["automationOff"];
+  } else {
+    userHue = 0;
+    userSaturation = 0;
+    userBrightness = 0;
+    userBrightnessFactor = 0;
+  }
 }
 
 void updateUserInterfaceFactors () {
@@ -214,9 +225,6 @@ void updateUserInterfaceFactors () {
     lastUserInterfaceCall = millis();
     userHue *= 182;         // mapped from 360 values to 65.536
     userSaturation *= 2.55; // mapped from 100 values to 255
-    if (!isManualMode) {  // in automation mode user should be able to completely overpower brightness values set by other factors
-      userBrightnessFactor = (userBrightnessFactor - 128) * 2;
-    }
   } else 
     Serial.println("Connection to WiFi was not possible. User interface factors have not been updated.");
 }
@@ -258,13 +266,20 @@ void printWeatherInfo() {
   Serial.printf(doc["name"]);
   Serial.printf("\n\tTime to sunset: %ld\n", timeToSunset);
   Serial.printf("\tTime to sunrise: %ld\n", timeToSunrise);
+  Serial.printf("\tSun factor is %d.\n", sunFactor);
   Serial.printf("\tCloud factor is %d with a cloudiness percentage of %f.\n", cloudFactor, cloudiness);
   Serial.printf("\tRain factor is %d with a rain volume of %f within the last hour.\n\n", rainFactor, rainVolume);
 }
 
+void updateSunEvents() {
+  updateCurrentTime();
+  timeToSunset = sunset - currentTime;
+  timeToSunrise = sunrise - currentTime;
+}
+
 void setNightFilter() {
   if (timeToSunrise < 900 && timeToSunrise >= -900) {         // decreasing blue light filter over 30 minutes. starting 15 minutes before sunrise.
-    nightFilter = 100 - (900 - timeToSunrise) / 7;            // range of 1800 seconds mapped onto 255 saturation steps.
+    nightFilter = 255 - (900 - timeToSunrise) / 7;            // range of 1800 seconds mapped onto 255 saturation steps.
   } else if (timeToSunset < 900 && timeToSunset >= -900) {    // increasing blue light filter over 30 minutes. starting 15 minutes before sunset.
     nightFilter = (900 - timeToSunset) / 7;                   // range of 1800 seconds mapped onto 255 saturation steps.
   } else nightFilter = isNight() ? 255 : 0;                   // complete filter active over the course of the night.
@@ -279,7 +294,7 @@ void setSunFactor() {
 }
 
 void setCloudFactor() {
-  cloudFactor = int(cloudiness * 0.5);
+  cloudFactor = int(cloudiness * 0.3);
 }
 
 void setRainFactor() {
@@ -287,9 +302,7 @@ void setRainFactor() {
 }
 
 void updateWeatherAndTimeFactorsLocally() {
-  updateCurrentTime();
-  timeToSunset = sunset - currentTime;
-  timeToSunrise = sunrise - currentTime;
+  updateSunEvents();
   setNightFilter();
   setSunFactor();
   setCloudFactor();
@@ -324,38 +337,36 @@ void calculateLampHSV() {
   } else {
     lampHue = userHue;
     lampSaturation = userSaturation;
-    lampBrightness = userBrightnessFactor;
+    lampBrightness = userBrightness;
   }
-
+  
   lampBrightness = lampBrightness > 255 ? 255 : lampBrightness < 0 ? 0 : lampBrightness;
   if (lampSaturation > 255) lampSaturation = 255;
 }
 
 void calculateAllValuesForLampUpdate() {
   millis() - lastAPICall >= callFrequencyAPI ? updateWeatherAndTimeFactorsByAPICall() : updateWeatherAndTimeFactorsLocally();
-  if (millis() - lastUserInterfaceCall >= callFrequencyUserInterface) 
-    updateUserInterfaceFactors();
+  if (millis() - lastUserInterfaceCall >= callFrequencyUserInterface) updateUserInterfaceFactors();
   calculateLampHSV();
 }
 
 
 void turnLampOff() {
   for (int i = lampBrightness; i >= 0; --i) {
-    pixels.fill(pixels.ColorHSV(lampHue, lampSaturation, i));
-    pixels.show();
+    lamp.fill(lamp.ColorHSV(lampHue, lampSaturation, i));
+    lamp.show();
     delay(15);
   }
+  lamp.clear();
+  lamp.show();
   isLampOn = false;
   Serial.println("\nLAMP OFF\n");
 }
 
 void turnLampOn() {
-  if (isManualMode) {
-    lampBrightness = userBrightnessFactor;
-  }
   for (int i = 0; i < lampBrightness; ++i) {
-    pixels.fill(pixels.ColorHSV(lampHue, lampSaturation, i));
-    pixels.show();
+    lamp.fill(lamp.ColorHSV(lampHue, lampSaturation, i));
+    lamp.show();
     delay(5);
   }
   isLampOn = true;
@@ -364,8 +375,8 @@ void turnLampOn() {
 
 void updateLamp() {
   for (int i = lampBrightnessOld; i != lampBrightness; lampBrightnessOld < lampBrightness ? ++i : --i) {
-    pixels.fill(pixels.ColorHSV(lampHueOld, lampSaturationOld, i));
-    pixels.show();
+    lamp.fill(lamp.ColorHSV(lampHueOld, lampSaturationOld, i));
+    lamp.show();
     delay(5);
   }
   if (lampBrightness == 0 && isLampOn) {
@@ -373,20 +384,19 @@ void updateLamp() {
   } else {
     if (lampHue != lampHueOld) {                                      // if change in hue value:
       for (int i = lampSaturationOld; i > 0; --i) {                   // - take saturation away
-        pixels.fill(pixels.ColorHSV(lampHueOld, i, lampBrightness));
-        pixels.show();
+        lamp.fill(lamp.ColorHSV(lampHueOld, i, lampBrightness));
+        lamp.show();
         delay(4);
       }
-      pixels.fill(pixels.ColorHSV(lampHue, 0, lampBrightness));       // - set correct hue
-      for (int i = 0; i < lampSaturation; ++i) {                      // - then bring saturation back
-        pixels.fill(pixels.ColorHSV(lampHue, i, lampBrightness));
-        pixels.show();
+      for (int i = 0; i < lampSaturation; ++i) {                      // - set correct hue & bring saturation back
+        lamp.fill(lamp.ColorHSV(lampHue, i, lampBrightness));
+        lamp.show();
         delay(2);
       }
     } else {
       for (int i = lampSaturationOld; i != lampSaturation; lampSaturationOld < lampSaturation ? ++i : --i) {
-        pixels.fill(pixels.ColorHSV(lampHue, i, lampBrightness));
-        pixels.show();
+        lamp.fill(lamp.ColorHSV(lampHue, i, lampBrightness));
+        lamp.show();
         delay(3);
       }
     }
@@ -397,27 +407,26 @@ void updateLamp() {
 
 void setup() {
   Serial.begin(115200);
-  delay(500);                   // sometimes printed lines got cut off...
+  delay(500);  // sometimes printed lines got cut off...
+
+  lamp.begin();
+  lamp.clear();
+  lamp.show();
+
   configTime(0, 0, ntpServer);
-  while (!connectWifi());       // necessary. won't continue until connected.
+  while (!connectWifi());  // necessary. won't continue until connected.
   getTimeFromNTP();
   updateWeatherAndTimeFactorsByAPICall();
   updateUserInterfaceFactors();
   calculateLampHSV();
   disconnectWifi();
-  Serial.println("Sun factor is: ");
-  Serial.println(vari);
+
   initBLEScan();
   pClient = BLEDevice::createClient();
   rssiAvg.begin();
-  
-  pixels.begin();
-  pixels.clear();
-  pixels.show();
 }
 
 void loop() {
-  /*
   while (!pClient->isConnected()) {
     Serial.println("Starting new BLE scan...");
     foundDevices = pBLEScan->start(3); // Scanning for 3 seconds
@@ -432,8 +441,6 @@ void loop() {
   }
 
   while (pClient->isConnected()) {
-    // */
-  while(true) {
     updateRssiWithDelay();
     if (rssiAvg.getAvg() < -80) {
       if (isLampOn) turnLampOff();
@@ -450,7 +457,3 @@ void loop() {
   disconnectWifi();
   rssiAvg.reset();
 }
-
-
-// rename: isManual --> also in ui.
-// explain ui in ui.
