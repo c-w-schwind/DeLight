@@ -16,7 +16,7 @@
   #include <avr/power.h>
 #endif
 #define NUMPIXELS 12
-Adafruit_NeoPixel lamp(NUMPIXELS, 16, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel lamp(NUMPIXELS, 4, NEO_GRB + NEO_KHZ800);
 
 // WIFI VARIABLES
 const char* ssid = SECRET_SSID;
@@ -33,14 +33,14 @@ unsigned long callFrequencyUserInterface = 5000;  // check for updates every 5 s
 // API VARIABLES
 const char* serverPathLatLon = "https://api.openweathermap.org/data/2.5/weather?lat=50.9375&lon=6.9603&appid=5a246f369afff4ce3d85a772dfe8e031";
 const char* serverPathZipCode = "https://api.openweathermap.org/data/2.5/weather?zip=51103,de&appid=5a246f369afff4ce3d85a772dfe8e031";
-const char* serverPathLocalhost = "http://192.168.179.7:8080/json"; // Future update: iteration function for finding 4th number?
+const char* serverPathLocalhost = "http://192.168.1.27:8080/json"; // Future update: iteration function for finding 4th number?
 unsigned long lastAPICall;
 unsigned long callFrequencyAPI = 60000 * 5;  // call API for weather info every 5 Minutes
 
 // BLE VARIABLES
 static BLEUUID serviceUUID("91bad492-b950-4226-aa2b-4ede9fa42f59"); 
 static BLEUUID charUUID("91bad492-b950-4226-aa2b-4ede9fa42f59");   
-static String Partner_BLE_Address = "b4:e6:2d:eb:17:73";                       
+static String Partner_BLE_Address = "58:bf:25:8c:f5:86";                       
 static BLERemoteCharacteristic *pRemoteCharacteristic;
 BLEClient *pClient;
 BLEScan *pBLEScan;
@@ -329,9 +329,9 @@ void calculateLampHSV() {
   lampBrightnessOld = lampBrightness;
   
   if (!isManualMode) {
-    lampBrightness = sunFactor + cloudFactor + rainFactor;
-    if (lampBrightness > 255) lampBrightness = 255;
-    lampBrightness += userBrightnessFactor;   // in automation mode userBrightnessFactor ranges from -256
+    //lampBrightness = sunFactor + cloudFactor + rainFactor;
+    //if (lampBrightness > 255) lampBrightness = 255;
+    //lampBrightness += userBrightnessFactor;   // in automation mode userBrightnessFactor ranges from -256
     lampSaturation = nightFilter;             // to 255 for ability to completely overpower auto values
     lampHue = DEFAULT_HUE;
   } else {
@@ -340,13 +340,14 @@ void calculateLampHSV() {
     lampBrightness = userBrightness;
   }
   
-  lampBrightness = lampBrightness > 255 ? 255 : lampBrightness < 0 ? 0 : lampBrightness;
+  //lampBrightness = lampBrightness > 255 ? 255 : lampBrightness < 0 ? 0 : lampBrightness;
+  lampBrightness = 255;
   if (lampSaturation > 255) lampSaturation = 255;
 }
 
 void calculateAllValuesForLampUpdate() {
   millis() - lastAPICall >= callFrequencyAPI ? updateWeatherAndTimeFactorsByAPICall() : updateWeatherAndTimeFactorsLocally();
-  if (millis() - lastUserInterfaceCall >= callFrequencyUserInterface) updateUserInterfaceFactors();
+  //if (millis() - lastUserInterfaceCall >= callFrequencyUserInterface) updateUserInterfaceFactors();
   calculateLampHSV();
 }
 
@@ -417,7 +418,7 @@ void setup() {
   while (!connectWifi());  // necessary. won't continue until connected.
   getTimeFromNTP();
   updateWeatherAndTimeFactorsByAPICall();
-  updateUserInterfaceFactors();
+  //updateUserInterfaceFactors();
   calculateLampHSV();
   disconnectWifi();
 
@@ -442,7 +443,7 @@ void loop() {
 
   while (pClient->isConnected()) {
     updateRssiWithDelay();
-    if (rssiAvg.getAvg() < -80) {
+    if (rssiAvg.getAvg() < -85) {
       if (isLampOn) turnLampOff();
     } else {
       calculateAllValuesForLampUpdate();
